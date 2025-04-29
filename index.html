@@ -1,0 +1,409 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sun Angle, Tide, Cloud & Rain Graph</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/moment@2.29.4/moment.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-moment@1.0.1/dist/chartjs-adapter-moment.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/suncalc@1.8.0/suncalc.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation@3.0.1/dist/chartjs-plugin-annotation.min.js"></script>
+    <style>
+        /* Use Inter font */
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+        /* Custom styles for chart container */
+        .chart-container {
+            position: relative;
+            height: 65vh; /* Slightly taller for more axes */
+            width: 95%;
+            max-width: 1200px; /* Wider for more axes */
+            margin: auto;
+        }
+        /* Style for the current time indicator line */
+        .current-time-line {
+            position: absolute;
+            top: 0;
+            bottom: 0;
+            width: 2px;
+            background-color: black;
+            z-index: 10;
+            pointer-events: none;
+            opacity: 0.7;
+        }
+    </style>
+     <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&display=swap" rel="stylesheet">
+</head>
+<body class="bg-sky-100 min-h-screen flex flex-col items-center justify-center p-4">
+
+    <div class="bg-white/80 backdrop-blur-sm rounded-xl shadow-lg p-6 md:p-8 w-full max-w-6xl">
+        <h1 class="text-2xl md:text-3xl font-bold text-center text-gray-800 mb-6">Sun Angle, Tide, Cloud & Rain Over Time</h1>
+        <p class="text-center text-gray-600 mb-1">Sun altitude calculated for Toronto, Canada (approx. 43.65° N, 79.38° W).</p>
+         <p class="text-center text-xs text-red-600 mb-1">Note: Tide curve is a simulation.</p>
+         <p class="text-center text-xs text-gray-500 mb-1">Note: Cloud cover is a simulation using Perlin noise.</p>
+         <p class="text-center text-xs text-blue-600 mb-6">Note: Rain amount is a simulation derived from cloud cover.</p>
+
+        <div class="flex flex-wrap justify-center gap-2 md:gap-4 mb-6">
+            <button id="dayBtn" class="scale-btn bg-blue-500 hover:bg-blue-600 text-white font-semibold py-2 px-4 rounded-lg shadow transition duration-300 ease-in-out">Day</button>
+            <button id="twoDayBtn" class="scale-btn bg-gray-400 hover:bg-blue-600 text-white font-semibold py-2 px-4 rounded-lg shadow transition duration-300 ease-in-out">Two Day</button>
+            <button id="weekBtn" class="scale-btn bg-gray-400 hover:bg-blue-600 text-white font-semibold py-2 px-4 rounded-lg shadow transition duration-300 ease-in-out">Week</button>
+            <button id="twoWeekBtn" class="scale-btn bg-gray-400 hover:bg-blue-600 text-white font-semibold py-2 px-4 rounded-lg shadow transition duration-300 ease-in-out">Two Week</button>
+            <button id="yearBtn" class="scale-btn bg-gray-400 hover:bg-blue-600 text-white font-semibold py-2 px-4 rounded-lg shadow transition duration-300 ease-in-out">Year</button>
+        </div>
+
+        <div class="chart-container relative">
+            <canvas id="sunAngleChart"></canvas>
+            <div id="currentTimeLine" class="current-time-line hidden"></div>
+        </div>
+         <p class="text-center text-sm text-gray-500 mt-4">Current Time: <span id="currentTimeDisplay">Loading...</span></p>
+    </div>
+
+    <script>
+        // --- Perlin Noise Generator ---
+        const PerlinNoise = {
+            permutation: [], p: [],
+            seed: function(s) { let r=()=>{var x=Math.sin(s++)*1e4;return x-Math.floor(x)};this.permutation=[];for(let i=0;i<256;i++){this.permutation[i]=i}for(let i=255;i>0;i--){const j=Math.floor(r()*(i+1));[this.permutation[i],this.permutation[j]]=[this.permutation[j],this.permutation[i]]}this.p=new Array(512);for(let i=0;i<512;i++){this.p[i]=this.permutation[i&255]} },
+            fade: function(t) { return t*t*t*(t*(t*6-15)+10); }, lerp: function(t,a,b) { return a+t*(b-a); }, grad: function(h,x) {const g=1+(h&7);return(h&8?-g:g)*x;},
+            noise: function(x) { const X=Math.floor(x)&255;x-=Math.floor(x);const u=this.fade(x);const a=this.p[X],b=this.p[X+1];return this.lerp(u,this.grad(this.p[a],x),this.grad(this.p[b],x-1))*2; }
+        };
+        const noiseSeed = Math.floor(Date.now() / 10000); PerlinNoise.seed(noiseSeed);
+        const rainNoiseSeed = noiseSeed + 1;
+        const PerlinNoiseRain = { ...PerlinNoise };
+        PerlinNoiseRain.seed(rainNoiseSeed);
+
+
+        // --- Configuration ---
+        const LATITUDE = 43.65; const LONGITUDE = -79.38;
+        const CHART_BG_COLOR_DAY = 'rgba(255, 235, 153, 0.4)'; const CHART_BG_COLOR_NIGHT = 'rgba(173, 216, 230, 0.3)';
+        const SUN_LINE_COLOR = 'rgba(255, 165, 0, 1)'; const SUN_MIN_LINE_COLOR = 'rgba(255, 215, 100, 0.6)'; const SUN_MIN_FILL_COLOR = 'rgba(173, 216, 230, 0.3)';
+        const TIDE_LINE_COLOR = 'rgba(0, 100, 255, 0.8)'; const TIDE_FILL_COLOR = 'rgba(0, 100, 255, 0.2)';
+        const CLOUD_FILL_COLOR = 'rgba(180, 180, 180, 0.5)'; const CLOUD_LINE_COLOR = 'rgba(0,0,0,0)'; // Invisible line
+        const RAIN_FILL_COLOR = 'rgba(100, 149, 237, 0.6)'; // Cornflower blue for rain fill
+        const RAIN_LINE_COLOR = 'rgba(0,0,0,0)'; // Invisible line
+        const TIDE_SIM_PERIOD_HOURS = 12.42; const HORIZON_LINE_COLOR = 'rgba(0, 0, 0, 0.7)';
+        const AXIS_ANIMATION_DURATION = 500;
+        const CLOUD_THRESHOLD_FOR_RAIN = 70; // Min cloud % for rain to occur
+        const MAX_RAIN_MM = 8; // Max simulated rain intensity in mm
+
+        // --- DOM Elements ---
+        const canvasElement = document.getElementById('sunAngleChart'); const ctx = canvasElement.getContext('2d');
+        const dayBtn = document.getElementById('dayBtn'); const twoDayBtn = document.getElementById('twoDayBtn'); const weekBtn = document.getElementById('weekBtn');
+        const twoWeekBtn = document.getElementById('twoWeekBtn'); const yearBtn = document.getElementById('yearBtn');
+        const scaleButtons = document.querySelectorAll('.scale-btn');
+        const currentTimeLine = document.getElementById('currentTimeLine'); const currentTimeDisplay = document.getElementById('currentTimeDisplay');
+
+        // --- Chart Instance ---
+        let sunChart; let currentScale = 'day'; let chartUpdateInterval; let currentAnimationId = null;
+
+        // --- Helper Functions ---
+
+        /** Calculates sun altitude. */
+        function getSunAltitude(date) { try { const pos = SunCalc.getPosition(date, LATITUDE, LONGITUDE); const alt = pos.altitude * 180 / Math.PI; return isNaN(alt) ? null : alt; } catch (e) { console.error("SunCalc Error:", e); return null; } }
+
+        /** Calculates simulated tide level. */
+        function getSimulatedTideLevel(date) { const t = date.getTime() / (3600000 * TIDE_SIM_PERIOD_HOURS); return Math.cos(t * 2 * Math.PI + Math.PI/4); }
+
+        /** Calculates simulated cloud cover percentage (0-100). */
+        function getSimulatedCloudCover(date, scale) {
+             let noiseInput; const timeInMillis = date.getTime();
+             switch (scale) { case 'day': case 'twoDay': noiseInput = timeInMillis / (3600000 * 2); break; case 'week': case 'twoWeek': noiseInput = timeInMillis / (86400000 * 0.5); break; case 'year': noiseInput = timeInMillis / (604800000 * 0.5); break; default: noiseInput = timeInMillis / 3600000; }
+             const noiseValue = PerlinNoise.noise(noiseInput); const cloudCover = Math.max(0, Math.min(100, (noiseValue + 1) / 2 * 100)); return 5 + cloudCover * 0.9; // Clamp
+        }
+
+        /** Calculates simulated rain amount (mm) based on cloud cover and separate noise */
+        function getSimulatedRainAmount(date, scale, cloudCover) {
+            if (cloudCover < CLOUD_THRESHOLD_FOR_RAIN) { return 0; }
+            let noiseInput; const timeInMillis = date.getTime();
+             switch (scale) { case 'day': case 'twoDay': noiseInput = timeInMillis / (3600000 * 0.8); break; case 'week': case 'twoWeek': noiseInput = timeInMillis / (86400000 * 0.2); break; case 'year': noiseInput = timeInMillis / (604800000 * 0.2); break; default: noiseInput = timeInMillis / 3600000 * 0.5; }
+            const rainNoiseValue = PerlinNoiseRain.noise(noiseInput);
+            let rainAmount = 0;
+            if (rainNoiseValue > 0.3) { rainAmount = ((rainNoiseValue - 0.3) / (1 - 0.3)) * MAX_RAIN_MM; }
+            rainAmount *= (cloudCover - CLOUD_THRESHOLD_FOR_RAIN) / (100 - CLOUD_THRESHOLD_FOR_RAIN);
+            return Math.max(0, Math.min(MAX_RAIN_MM, rainAmount));
+        }
+
+
+        /** Generates chart data including cloud and rain. */
+        function generateChartData(scale, centerDate) {
+            const tideDataPoints = []; const cloudDataPoints = []; const rainDataPoints = [];
+            let startDateMoment, endDateMoment, step, unit;
+            let returnData = { sunData: null, maxSunData: null, minSunData: null, tideData: tideDataPoints, cloudData: cloudDataPoints, rainData: rainDataPoints, startDate: null, endDate: null };
+
+            switch (scale) {
+                case 'day': startDateMoment = moment(centerDate).startOf('day'); endDateMoment = moment(centerDate).endOf('day'); step = 10; unit = 'minute'; break;
+                case 'twoDay': startDateMoment = moment(centerDate).startOf('day'); endDateMoment = moment(centerDate).add(1, 'day').endOf('day'); step = 15; unit = 'minute'; break;
+                case 'week': startDateMoment = moment(centerDate).startOf('isoWeek'); endDateMoment = moment(centerDate).endOf('isoWeek'); step = 1; unit = 'hour'; break;
+                case 'twoWeek': startDateMoment = moment(centerDate).subtract(1, 'week').startOf('isoWeek'); endDateMoment = moment(centerDate).endOf('isoWeek'); step = 2; unit = 'hour'; break;
+                case 'year': startDateMoment = moment(centerDate).startOf('year'); endDateMoment = moment(centerDate).endOf('year'); step = 1; unit = 'day'; break;
+                default: console.error("Invalid scale:", scale); return returnData;
+            }
+            returnData.startDate = startDateMoment.toDate(); returnData.endDate = endDateMoment.toDate();
+
+            let currentDate = moment(startDateMoment);
+            if (scale === 'year') {
+                returnData.maxSunData = []; returnData.minSunData = [];
+                while (currentDate.isSameOrBefore(endDateMoment)) {
+                    const dateObj = currentDate.toDate();
+                    const times = SunCalc.getTimes(dateObj, LATITUDE, LONGITUDE);
+                    const maxAltitude = getSunAltitude(times.solarNoon);
+                    const minAltitude = getSunAltitude(moment(dateObj).startOf('day').toDate());
+                    const cloudCover = getSimulatedCloudCover(dateObj, scale);
+                    const rainAmount = getSimulatedRainAmount(dateObj, scale, cloudCover);
+
+                    if (maxAltitude !== null) returnData.maxSunData.push({ x: dateObj, y: maxAltitude });
+                    if (minAltitude !== null) returnData.minSunData.push({ x: dateObj, y: minAltitude });
+                    tideDataPoints.push({ x: dateObj, y: getSimulatedTideLevel(dateObj) });
+                    cloudDataPoints.push({ x: dateObj, y: cloudCover }); // Store actual cloud %
+                    rainDataPoints.push({ x: dateObj, y: rainAmount }); // Store actual rain amount (mm)
+                    currentDate.add(step, unit);
+                }
+            } else {
+                returnData.sunData = [];
+                while (currentDate.isSameOrBefore(endDateMoment)) {
+                    const dateObj = currentDate.toDate();
+                    const altitude = getSunAltitude(dateObj);
+                    const tideLevel = getSimulatedTideLevel(dateObj);
+                    const cloudCover = getSimulatedCloudCover(dateObj, scale);
+                    const rainAmount = getSimulatedRainAmount(dateObj, scale, cloudCover);
+
+                    if (altitude !== null) returnData.sunData.push({ x: dateObj, y: altitude });
+                    tideDataPoints.push({ x: dateObj, y: tideLevel });
+                    cloudDataPoints.push({ x: dateObj, y: cloudCover }); // Store actual cloud %
+                    rainDataPoints.push({ x: dateObj, y: rainAmount }); // Store actual rain amount (mm)
+                    currentDate.add(step, unit);
+                }
+                 // Ensure final point is included
+                 const finalDateObj = endDateMoment.toDate();
+                 const finalAltitude = getSunAltitude(finalDateObj);
+                 const finalTideLevel = getSimulatedTideLevel(finalDateObj);
+                 const finalCloudCover = getSimulatedCloudCover(finalDateObj, scale);
+                 const finalRainAmount = getSimulatedRainAmount(finalDateObj, scale, finalCloudCover);
+
+                 if (finalAltitude !== null && (returnData.sunData.length === 0 || !moment(returnData.sunData[returnData.sunData.length - 1].x).isSame(endDateMoment))) { returnData.sunData.push({ x: finalDateObj, y: finalAltitude }); }
+                 if (tideDataPoints.length === 0 || !moment(tideDataPoints[tideDataPoints.length - 1].x).isSame(endDateMoment)) { tideDataPoints.push({ x: finalDateObj, y: finalTideLevel }); }
+                 if (cloudDataPoints.length === 0 || !moment(cloudDataPoints[cloudDataPoints.length - 1].x).isSame(endDateMoment)) { cloudDataPoints.push({ x: finalDateObj, y: finalCloudCover }); }
+                 if (rainDataPoints.length === 0 || !moment(rainDataPoints[rainDataPoints.length - 1].x).isSame(endDateMoment)) { rainDataPoints.push({ x: finalDateObj, y: finalRainAmount }); }
+            }
+            return returnData;
+        }
+
+        /** Easing function */
+        function easeInOutQuad(t) { return t < 0.5 ? 2 * t * t : -1 + (4 - 2 * t) * t; }
+
+        /** Animates X-axis */
+        function animateAxis(startMin, startMax, endMin, endMax, duration, onComplete) {
+            if (currentAnimationId) cancelAnimationFrame(currentAnimationId);
+            const startMinTs = startMin.getTime(), startMaxTs = startMax.getTime();
+            const endMinTs = endMin.getTime(), endMaxTs = endMax.getTime();
+            const startTime = performance.now();
+            function step(currentTime) {
+                const elapsed = currentTime - startTime, progress = Math.min(1, elapsed / duration);
+                const easedProgress = easeInOutQuad(progress);
+                const currentMinTs = startMinTs + (endMinTs - startMinTs) * easedProgress;
+                const currentMaxTs = startMaxTs + (endMaxTs - startMaxTs) * easedProgress;
+                sunChart.options.scales.x.min = new Date(currentMinTs);
+                sunChart.options.scales.x.max = new Date(currentMaxTs);
+                sunChart.update('none');
+                updateCurrentTimeLine();
+                if (progress < 1) { currentAnimationId = requestAnimationFrame(step); }
+                else {
+                    sunChart.options.scales.x.min = endMin; sunChart.options.scales.x.max = endMax;
+                    if (typeof onComplete === 'function') onComplete();
+                    currentAnimationId = null; updateCurrentTimeLine();
+                }
+            }
+            currentAnimationId = requestAnimationFrame(step);
+        }
+
+        /** Updates chart data and triggers animation */
+        function updateChart(scale) {
+            if (!sunChart) return;
+            const currentMin = sunChart.options.scales.x.min || new Date();
+            const currentMax = sunChart.options.scales.x.max || new Date();
+            currentScale = scale;
+            const generatedData = generateChartData(scale, new Date());
+            if ((!generatedData.sunData && (!generatedData.maxSunData || !generatedData.minSunData)) || !generatedData.tideData.length || !generatedData.cloudData.length || !generatedData.rainData.length || !generatedData.startDate || !generatedData.endDate) { console.error("Data generation failed for scale:", scale); return; }
+
+            scaleButtons.forEach(btn => { btn.classList.toggle('bg-blue-500', btn.id === `${scale}Btn`); btn.classList.toggle('bg-gray-400', btn.id !== `${scale}Btn`); });
+
+            let timeUnit, tooltipFormat;
+            switch (scale) {
+                case 'day': case 'twoDay': timeUnit = 'hour'; tooltipFormat = 'MMM D, h:mm A'; break;
+                case 'week': case 'twoWeek': timeUnit = 'day'; tooltipFormat = 'MMM D, h A'; break;
+                case 'year': timeUnit = 'month'; tooltipFormat = 'MMM D, YYYY'; break; // Use full year for clarity
+            }
+            sunChart.options.scales.x.time.unit = timeUnit;
+            sunChart.options.plugins.tooltip.callbacks.title._tooltipFormat = tooltipFormat;
+
+            const onAnimationComplete = () => {
+                const datasets = sunChart.data.datasets;
+                // Update tide, cloud, and rain data (always present)
+                datasets[1].data = generatedData.tideData;
+                datasets[3].data = generatedData.cloudData;
+                datasets[4].data = generatedData.rainData; // Rain data is dataset 4
+
+                if (scale === 'year') {
+                    // Configure for year view (min/max sun)
+                    datasets[0].label = 'Max Sun Altitude (°)'
+                    datasets[0].data = generatedData.maxSunData;
+                    datasets[0].fill = '-1'; // Fill towards the next dataset (minSun)
+                    datasets[0].backgroundColor = CHART_BG_COLOR_DAY; // Fill color between max and min
+
+                    datasets[2].label = 'Min Sun Altitude (°)'
+                    datasets[2].data = generatedData.minSunData;
+                    datasets[2].hidden = false; // Show min sun line
+                    datasets[2].fill = 'start'; // Fill min sun line down to bottom
+                    datasets[2].backgroundColor = SUN_MIN_FILL_COLOR; // Color below min line
+
+                } else {
+                    // Configure for non-year views (single sun line)
+                    datasets[0].label = 'Sun Altitude (°)'
+                    datasets[0].data = generatedData.sunData;
+                    datasets[0].fill = { target: 'origin', above: CHART_BG_COLOR_DAY, below: CHART_BG_COLOR_NIGHT };
+                    delete datasets[0].backgroundColor; // Remove specific background if set
+
+                    datasets[2].hidden = true; // Hide min sun line
+                    datasets[2].data = []; // Clear data
+                }
+                sunChart.update('none'); // Update chart with new data, no animation
+            };
+            animateAxis(currentMin, currentMax, generatedData.startDate, generatedData.endDate, AXIS_ANIMATION_DURATION, onAnimationComplete);
+        }
+
+        /** Updates current time indicator */
+        function updateCurrentTimeLine() {
+             if (!sunChart || !sunChart.chartArea || !sunChart.scales.x || !sunChart.options.scales.x.min || !sunChart.options.scales.x.max) { currentTimeLine.classList.add('hidden'); return; }
+            const now = new Date(), chartArea = sunChart.chartArea, xScale = sunChart.scales.x;
+            const scaleMin = moment(sunChart.options.scales.x.min), scaleMax = moment(sunChart.options.scales.x.max), momentNow = moment(now);
+            if (scaleMin.isValid() && scaleMax.isValid() && momentNow.isBetween(scaleMin, scaleMax, undefined, '[]')) {
+                 try {
+                    const xPixel = xScale.getPixelForValue(now);
+                    if (isFinite(xPixel) && xPixel >= chartArea.left && xPixel <= chartArea.right) {
+                        currentTimeLine.style.left = `${xPixel}px`; currentTimeLine.style.top = `${chartArea.top}px`; currentTimeLine.style.height = `${chartArea.height}px`; currentTimeLine.classList.remove('hidden');
+                    } else { currentTimeLine.classList.add('hidden'); }
+                 } catch (e) { console.warn("Pixel calc error:", e); currentTimeLine.classList.add('hidden'); }
+            } else { currentTimeLine.classList.add('hidden'); }
+            currentTimeDisplay.textContent = moment(now).format('MMM D, YYYY, h:mm:ss A'); // Use full year
+        }
+
+        // Custom plugin for horizon line
+        const horizonLinePlugin = {
+            id: 'horizonLine',
+            afterDraw: (chart) => {
+                const yAxis = chart.scales.y; if (!yAxis) return;
+                const ctx = chart.ctx; const chartArea = chart.chartArea; if (!chartArea) return;
+                const yPixel = yAxis.getPixelForValue(0);
+                if (yPixel >= chartArea.top && yPixel <= chartArea.bottom) {
+                    ctx.save(); ctx.beginPath(); ctx.moveTo(chartArea.left, yPixel); ctx.lineTo(chartArea.right, yPixel);
+                    ctx.lineWidth = 1.5; ctx.strokeStyle = HORIZON_LINE_COLOR; ctx.setLineDash([6, 6]); ctx.stroke(); ctx.restore();
+                }
+            }
+        };
+
+        // --- Chart Initialization ---
+        function initializeChart() {
+            const initialGeneratedData = generateChartData(currentScale, new Date());
+             if (!initialGeneratedData.startDate || !initialGeneratedData.endDate) { console.error("Initial data generation failed."); document.getElementById('sunAngleChart').outerHTML = '<p class="text-red-500 text-center">Error: Could not load chart data.</p>'; return; }
+
+            sunChart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    datasets: [
+                        // Dataset 0: Sun Altitude / Max Sun Altitude
+                        { label: 'Sun Altitude (°)', data: initialGeneratedData.sunData || [], borderColor: SUN_LINE_COLOR, borderWidth: 2.5, pointRadius: 0, tension: 0.4, fill: { target: 'origin', above: CHART_BG_COLOR_DAY, below: CHART_BG_COLOR_NIGHT }, parsing: { xAxisKey: 'x', yAxisKey: 'y' }, yAxisID: 'y', order: 2 },
+                        // Dataset 1: Simulated Tide
+                        { label: 'Simulated Tide Level', data: initialGeneratedData.tideData, borderColor: TIDE_LINE_COLOR, borderWidth: 1.5, pointRadius: 0, tension: 0.4, fill: 'start', backgroundColor: TIDE_FILL_COLOR, parsing: { xAxisKey: 'x', yAxisKey: 'y' }, yAxisID: 'y1', order: 3 },
+                         // Dataset 2: Min Sun Altitude (Initially hidden)
+                        { label: 'Min Sun Altitude (°)', data: [], borderColor: SUN_MIN_LINE_COLOR, borderWidth: 1, pointRadius: 0, tension: 0.4, hidden: true, fill: 'start', backgroundColor: SUN_MIN_FILL_COLOR, parsing: { xAxisKey: 'x', yAxisKey: 'y' }, yAxisID: 'y', order: 2 },
+                         // Dataset 3: Cloud Cover
+                        { label: 'Cloud Cover (%)', data: initialGeneratedData.cloudData || [], borderColor: CLOUD_LINE_COLOR, borderWidth: 0, pointRadius: 0, tension: 0.4,
+                          // Fill down from the top (100% line) to the data value on its axis (y2)
+                          fill: 'end',
+                          backgroundColor: CLOUD_FILL_COLOR, parsing: { xAxisKey: 'x', yAxisKey: 'y' }, yAxisID: 'y2', order: 0 },
+                         // Dataset 4: Rain Amount
+                        { label: 'Rain Amount (mm)', data: initialGeneratedData.rainData || [], borderColor: RAIN_LINE_COLOR, borderWidth: 0, pointRadius: 0, tension: 0.2,
+                          // Fill down from the top (Max Rain line) to the data value on its axis (y3)
+                          fill: 'end',
+                          backgroundColor: RAIN_FILL_COLOR, parsing: { xAxisKey: 'x', yAxisKey: 'y' }, yAxisID: 'y3', order: 1 }
+                    ]
+                },
+                options: {
+                    responsive: true, maintainAspectRatio: false, animation: false, interaction: { mode: 'index', intersect: false },
+                    scales: {
+                        x: { type: 'time', min: initialGeneratedData.startDate, max: initialGeneratedData.endDate, time: { unit: 'hour', tooltipFormat: 'MMM D, h:mm A', displayFormats: { hour: 'hA', day: 'MMM D', month: 'MMM YYYY' } }, title: { display: true, text: 'Time', color: 'rgba(0, 0, 0, 0.8)', font: { weight: 'bold' } }, grid: { color: 'rgba(0, 0, 0, 0.08)' }, ticks: { color: 'rgba(0, 0, 0, 0.7)', maxRotation: 0, autoSkip: true, maxTicksLimit: 12 } },
+                        // --- Y Axes Configuration ---
+                        y: { type: 'linear', position: 'left', title: { display: true, text: 'Sun Altitude (°)', color: SUN_LINE_COLOR, font: { weight: 'bold' } }, min: -90, max: 90, grid: { drawOnChartArea: true, color: 'rgba(0, 0, 0, 0.08)' }, ticks: { color: 'rgba(0, 0, 0, 0.7)', stepSize: 15 } },
+                        y1: { type: 'linear', position: 'right', title: { display: true, text: 'Simulated Tide', color: TIDE_LINE_COLOR, font: { weight: 'bold' } }, min: -3, max: 3, grid: { drawOnChartArea: false }, ticks: { color: 'rgba(0, 0, 0, 0.7)', stepSize: 1 } },
+                        y2: { type: 'linear', position: 'left', offset: true, title: { display: true, text: 'Cloud Cover (%)', color: 'grey', font: { weight: 'bold' } }, min: 0, max: 200,
+                              // Reverse the axis so 0 is at the top
+                              reverse: true,
+                              grid: { drawOnChartArea: false }, ticks: { color: 'rgba(0, 0, 0, 0.7)', stepSize: 20, callback: function(v) { return v + '%'; } } },
+                        y3: { type: 'linear', position: 'right', offset: true, title: { display: true, text: 'Rain (mm)', color: RAIN_FILL_COLOR, font: { weight: 'bold' } }, min: 0, max: MAX_RAIN_MM * 1.1,
+                              // Reverse the axis so 0mm is at the top
+                              reverse: true,
+                              grid: { drawOnChartArea: false }, ticks: { color: 'rgba(0, 0, 0, 0.7)', stepSize: Math.max(1, Math.round(MAX_RAIN_MM / 5)) } }
+                    },
+                    plugins: {
+                        tooltip: {
+                            backgroundColor: 'rgba(0, 0, 0, 0.7)', titleFont: { weight: 'bold'},
+                            filter: function(item) { return item.datasetIndex !== 2; }, // Hide min sun tooltip
+                            callbacks: {
+                                title: function(tooltipItems) { if (tooltipItems.length > 0) { const date = moment(tooltipItems[0].parsed.x); const format = tooltipItems[0].chart.options.plugins.tooltip.callbacks.title._tooltipFormat || 'MMM D, h:mm A'; return date.format(format); } return ''; },
+                                label: function(context) {
+                                    let label = context.dataset.label || '';
+                                    if (label) label += ': ';
+                                    if (context.parsed && context.parsed.y !== null) {
+                                         let value = context.parsed.y;
+                                         if (context.datasetIndex === 0) label += value.toFixed(2) + '°'; // Sun/Max Sun
+                                         else if (context.datasetIndex === 1) label += value.toFixed(2); // Tide
+                                         else if (context.datasetIndex === 3) label += value.toFixed(0) + '%'; // Cloud
+                                         else if (context.datasetIndex === 4) { // Rain
+                                             if (value > 0.05) { label += value.toFixed(1) + ' mm'; }
+                                             else { return null; } // Hide label if no significant rain
+                                         }
+                                         else label += value.toFixed(2);
+                                    } else { return null; }
+                                    return label;
+                                }
+                            }
+                        },
+                        legend: {
+                            display: true, position: 'top',
+                             labels: {
+                                 usePointStyle: true, padding: 20,
+                                 filter: function(legendItem, chartData) { return !chartData.datasets[legendItem.datasetIndex].hidden; }
+                             }
+                        },
+                    },
+                    normalized: true, spanGaps: true,
+                },
+                // Register only the horizon line plugin
+                plugins: [horizonLinePlugin]
+            });
+
+            sunChart.options.plugins.tooltip.callbacks.title._tooltipFormat = sunChart.options.scales.x.time.tooltipFormat;
+            updateCurrentTimeLine();
+            if (chartUpdateInterval) clearInterval(chartUpdateInterval);
+            chartUpdateInterval = setInterval(updateCurrentTimeLine, 1000);
+            let resizeTimeout;
+            window.addEventListener('resize', () => { clearTimeout(resizeTimeout); resizeTimeout = setTimeout(() => { if (sunChart) { currentTimeLine.classList.add('hidden'); setTimeout(updateCurrentTimeLine, 100); } }, 250); });
+        }
+
+        // --- Event Listeners ---
+        dayBtn.addEventListener('click', () => updateChart('day'));
+        twoDayBtn.addEventListener('click', () => updateChart('twoDay'));
+        weekBtn.addEventListener('click', () => updateChart('week'));
+        twoWeekBtn.addEventListener('click', () => updateChart('twoWeek'));
+        yearBtn.addEventListener('click', () => updateChart('year'));
+
+        // --- Initial Load ---
+        window.onload = () => { initializeChart(); };
+    </script>
+
+</body>
+</html>
