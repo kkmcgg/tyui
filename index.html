@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Sun Angle, Tide, Cloud & Rain Graph</title>
-    <script src="https://cdn.tailwindcss.com"></script>
+   <!-- <script src="https://cdn.tailwindcss.com"></script> -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/moment@2.29.4/moment.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-moment@1.0.1/dist/chartjs-adapter-moment.min.js"></script>
@@ -41,14 +41,14 @@
 </head>
 <body class="bg-sky-100 min-h-screen flex flex-col items-center justify-center p-4">
 
-    <div class="bg-white/80 backdrop-blur-sm rounded-xl shadow-lg p-6 md:p-8 w-full max-w-6xl">
-        <h1 class="text-2xl md:text-3xl font-bold text-center text-gray-800 mb-6">Sun Angle, Tide, Cloud & Rain Over Time</h1>
+    <div class="bg-white/80 backdrop-blur-sm rounded-xl shadow-lg p-6 md:p-8 w-full max-w-6xl" style="text-align: center;">
+        <!-- <h1 class="text-2xl md:text-3xl font-bold text-center text-gray-800 mb-6">Sun Angle, Tide, Cloud & Rain Over Time</h1>
         <p class="text-center text-gray-600 mb-1">Sun altitude calculated for Toronto, Canada (approx. 43.65° N, 79.38° W).</p>
          <p class="text-center text-xs text-red-600 mb-1">Note: Tide curve is a simulation.</p>
          <p class="text-center text-xs text-gray-500 mb-1">Note: Cloud cover is a simulation using Perlin noise.</p>
          <p class="text-center text-xs text-blue-600 mb-6">Note: Rain amount is a simulation derived from cloud cover.</p>
 
-        <div class="flex flex-wrap justify-center gap-2 md:gap-4 mb-6">
+        <div class="flex flex-wrap justify-center gap-2 md:gap-4 mb-6"> -->
             <button id="dayBtn" class="scale-btn bg-blue-500 hover:bg-blue-600 text-white font-semibold py-2 px-4 rounded-lg shadow transition duration-300 ease-in-out">Day</button>
             <button id="twoDayBtn" class="scale-btn bg-gray-400 hover:bg-blue-600 text-white font-semibold py-2 px-4 rounded-lg shadow transition duration-300 ease-in-out">Two Day</button>
             <button id="weekBtn" class="scale-btn bg-gray-400 hover:bg-blue-600 text-white font-semibold py-2 px-4 rounded-lg shadow transition duration-300 ease-in-out">Week</button>
@@ -58,9 +58,9 @@
 
         <div class="chart-container relative">
             <canvas id="sunAngleChart"></canvas>
-            <div id="currentTimeLine" class="current-time-line hidden"></div>
+            <div id="currentTimeLine" class="current-time-line hidden" ></div>
         </div>
-         <p class="text-center text-sm text-gray-500 mt-4">Current Time: <span id="currentTimeDisplay">Loading...</span></p>
+         <p class="text-center text-sm text-gray-500 mt-4" style="text-align: center;">Current Time: <span id="currentTimeDisplay">Loading...</span></p>
     </div>
 
     <script>
